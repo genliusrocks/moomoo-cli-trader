@@ -15,9 +15,13 @@ def portfolio():
     pass
 
 @portfolio.command("summary")
-def summary_cmd():
-    """Display current assets, cash, and market value."""
-    get_account_summary()
+@click.option("--currency", default="USD", type=click.Choice(["USD", "HKD", "CNH"]), help="Currency to display (USD, HKD, CNH).")
+def summary_cmd(currency):
+    """
+    Display current assets, cash, and market value.
+    Example: python main.py portfolio summary --currency HKD
+    """
+    get_account_summary(currency)
 
 @portfolio.command("positions")
 def positions_cmd():

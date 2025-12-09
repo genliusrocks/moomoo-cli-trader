@@ -10,26 +10,31 @@ import pytz
 
 console = Console()
 
-def get_account_summary():
+def get_account_summary(currency='USD'):  # <--- 新增参数
     """Fetches and displays the account assets, cash, and market value."""
     ctx = ConnectionManager.get_trade_context()
-    ret, data = ctx.accinfo_query(trd_env=TRADING_ENV, currency='USD')
+    
+    # 使用传入的 currency 参数
+    ret, data = ctx.accinfo_query(trd_env=TRADING_ENV, currency=currency)
+    
     if ret != RET_OK:
-        console.print(f"[bold red]Error fetching funds:[/bold red] {data}")
+        console.print(f"[bold red]Error fetching funds ({currency}):[/bold red] {data}")
         return
     if not data.empty:
         row = data.iloc[0]
-        table = Table(title=f"Account Summary ({TRADING_ENV})")
+        # 标题增加币种显示
+        table = Table(title=f"Account Summary ({TRADING_ENV}) - {currency}")
         table.add_column("Metric", style="cyan", no_wrap=True)
-        table.add_column("Value (USD)", style="green")
-        table.add_row("Total Assets", f"${safe_float(row.get('total_assets')):,.2f}")
-        table.add_row("Cash", f"${safe_float(row.get('cash')):,.2f}")
-        table.add_row("Market Value", f"${safe_float(row.get('market_val')):,.2f}")
-        table.add_row("Realized P&L", f"${safe_float(row.get('realized_pl')):,.2f}")
-        table.add_row("Unrealized P&L", f"${safe_float(row.get('unrealized_pl')):,.2f}")
+        table.add_column(f"Value ({currency})", style="green") # 列名增加币种
+        
+        table.add_row("Total Assets", f"{safe_float(row.get('total_assets')):,.2f}")
+        table.add_row("Cash", f"{safe_float(row.get('cash')):,.2f}")
+        table.add_row("Market Value", f"{safe_float(row.get('market_val')):,.2f}")
+        table.add_row("Realized P&L", f"{safe_float(row.get('realized_pl')):,.2f}")
+        table.add_row("Unrealized P&L", f"{safe_float(row.get('unrealized_pl')):,.2f}")
         console.print(table)
     else:
-        console.print("[yellow]No account data found.[/yellow]")
+        console.print(f"[yellow]No account data found for {currency}.[/yellow]")
     ConnectionManager.close()
 
 def get_market_timezone():
