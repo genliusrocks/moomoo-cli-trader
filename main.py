@@ -1,7 +1,7 @@
 import click
-from portfolio import get_account_summary, get_deals, get_positions
+from portfolio import get_account_summary, get_deals, get_statement
 from market_data import get_stock_quote
-from trading import place_trade, get_orders, cancel_order # Import cancel_order
+from trading import place_trade, get_orders, cancel_order 
 from connection import ConnectionManager
 
 @click.group()
@@ -32,6 +32,17 @@ def deals_cmd(days, start, end):
     """List executed trades (Deals). Defaults to Today."""
     get_deals(days=days, start_date=start, end_date=end)
 
+# --- NEW STATEMENT COMMAND ---
+@cli.command("statement")
+@click.argument("date_str", required=False)
+def statement_cmd(date_str):
+    """
+    Get daily statement (Trades & Cash Flow).
+    DATE_STR: Optional 'YYMMDD' (e.g. 241209). Defaults to Today if omitted.
+    """
+    get_statement(date_str)
+
+
 @cli.command("quote")
 @click.argument("ticker")
 def quote_cmd(ticker):
@@ -58,6 +69,7 @@ def cancel_cmd(order_id):
     Example: python main.py cancel 657248
     """
     cancel_order(order_id)
+    
 
 @cli.command("buy")
 @click.argument("ticker")
