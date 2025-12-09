@@ -1,5 +1,5 @@
 import click
-from portfolio import get_account_summary, get_deals
+from portfolio import get_account_summary, get_deals, get_positions
 from market_data import get_stock_quote
 from trading import place_trade
 from connection import ConnectionManager
@@ -19,12 +19,17 @@ def summary_cmd():
     """Display current assets, cash, and market value."""
     get_account_summary()
 
+@portfolio.command("positions")
+def positions_cmd():
+    """List current stock holdings."""
+    get_positions()
+
 @portfolio.command("deals")
-@click.option("--days", default=0, help="Number of past days to fetch (e.g., 7).")
+@click.option("--days", default=0, help="Number of past days to fetch.")
 @click.option("--start", default=None, help="Start date (YYYY-MM-DD)")
 @click.option("--end", default=None, help="End date (YYYY-MM-DD)")
 def deals_cmd(days, start, end):
-    """List executed trades."""
+    """List executed trades (Deals). Defaults to Today."""
     get_deals(days=days, start_date=start, end_date=end)
 
 @cli.command("quote")
@@ -39,30 +44,45 @@ def unlock_cmd(password):
     """Unlock trading with 6-digit PIN."""
     ConnectionManager.unlock(password)
 
-# --- Buy Command ---
+# --- Buy Command (Updated) ---
 @cli.command("buy")
 @click.argument("ticker")
 @click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
-@click.argument("price", type=float)
 @click.argument("qty", type=int)
-def buy_cmd(ticker, order_type, price, qty):
+@click.argument("price", type=float, required=False, default=0.0)
+def buy_cmd(ticker, order_type, qty, price):
     """
     Place a BUY order.
-    Example: python main.py buy AAPL limit 273.1 100
+    
+    Syntax:
+    Market: python main.py buy AAPL market 100
+    Limit:  python main.py buy AAPL limit 100 273.5
     """
+    # Validation: Limit orders must have a price
+    if order_type == 'limit' and price == 0.0:
+        click.echo("Error: Limit orders require a price.\nUsage: python main.py buy <TICKER> limit <QTY> <PRICE>")
+        return
+
     place_trade(ticker, 'buy', order_type, price, qty)
 
-# --- New Sell Command ---
+# --- Sell Command (Updated) ---
 @cli.command("sell")
 @click.argument("ticker")
 @click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
-@click.argument("price", type=float)
 @click.argument("qty", type=int)
-def sell_cmd(ticker, order_type, price, qty):
+@click.argument("price", type=float, required=False, default=0.0)
+def sell_cmd(ticker, order_type, qty, price):
     """
     Place a SELL order.
-    Example: python main.py sell SPY limit 685 20
+    
+    Syntax:
+    Market: python main.py sell SPY market 10
+    Limit:  python main.py sell SPY limit 10 685.5
     """
+    if order_type == 'limit' and price == 0.0:
+        click.echo("Error: Limit orders require a price.\nUsage: python main.py sell <TICKER> limit <QTY> <PRICE>")
+        return
+
     place_trade(ticker, 'sell', order_type, price, qty)
 
 if __name__ == '__main__':
