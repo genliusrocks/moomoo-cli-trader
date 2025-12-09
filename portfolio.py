@@ -118,40 +118,87 @@ def get_statement(date_str=None):
         start=query_date, end=query_date, trd_env=TRADING_ENV
     )
 
-    # 3. Fetch Cash Flow (FIX: Uses clearing_date)
-    # The API requires querying one day at a time for this specific endpoint
+    # 3. 查询费用 (Fees)
+    fees_map = {} # order_id -> total_fee
+    if ret_deals == RET_OK and not data_deals.empty:
+        # 获取所有涉及的 Order ID
+        order_ids = list(set(data_deals['order_id'].tolist()))
+        # API 限制每次最多查 400 个订单，这里假设日内订单不超过此数
+        ret_fee, data_fee = ctx.order_fee_query(order_id_list=order_ids, trd_env=TRADING_ENV)
+        
+        if ret_fee == RET_OK and not data_fee.empty:
+            # data_fee 返回每一项费用明细 (佣金、平台费、交收费等)，我们需要按 order_id 汇总
+            for _, row in data_fee.iterrows():
+                oid = row.get('order_id')
+                amt = safe_float(row.get('fee_amount'))
+                if oid in fees_map:
+                    fees_map[oid] += amt
+                else:
+                    fees_map[oid] = amt
+
+    # 4. 查询资金流水 (Cash Flow)
     ret_flow, data_flow = ctx.get_acc_cash_flow(
         clearing_date=query_date, trd_env=TRADING_ENV
     )
 
-    # --- Display Trades ---
+    # --- 显示成交记录 ---
+    total_fees_day = 0.0
+    
     if ret_deals == RET_OK and not data_deals.empty:
-        deal_table = Table(title="Executed Trades", style="blue")
+        deal_table = Table(title=f"Executed Trades ({query_date})", style="blue")
         deal_table.add_column("Time", style="dim")
         deal_table.add_column("Side")
         deal_table.add_column("Symbol", style="yellow")
         deal_table.add_column("Price", justify="right")
         deal_table.add_column("Qty", justify="right")
         deal_table.add_column("Amount", justify="right")
+        deal_table.add_column("Order Fee", justify="right", style="red") # 新增费用列
+
+        # 用来防止同一个 Order 的费用在多次 Deal 中重复显示的逻辑 (可选)
+        processed_orders = set()
 
         for _, row in data_deals.iterrows():
             side = row.get('trd_side', 'UNKNOWN')
             color = "red" if side == "BUY" else "green"
+            
+            price = safe_float(row.get('price'))
+            qty = safe_float(row.get('qty'))
+            amount = price * qty
+            
+            order_id = row.get('order_id')
+            fee_display = "-"
+            
+            # 显示费用：如果是该 Order 的第一笔展示，则显示总费用
+            # (注意：如果一个 Order 分多笔成交，API 返回的是该 Order 的总费用，无法精确拆分到每笔 Deal)
+            if order_id in fees_map:
+                fee_val = fees_map[order_id]
+                if order_id not in processed_orders:
+                    fee_display = f"{fee_val:.2f}"
+                    total_fees_day += fee_val
+                    processed_orders.add(order_id)
+                else:
+                    fee_display = "(see above)"
+
             deal_table.add_row(
                 str(row.get('create_time', 'N/A'))[11:], 
                 f"[{color}]{side}[/{color}]",
                 str(row.get('code', 'N/A')),
-                f"{safe_float(row.get('price')):,.2f}",
-                f"{safe_float(row.get('qty')):,.0f}",
-                f"{safe_float(row.get('dealt_amount')):,.2f}"
+                f"{price:,.2f}",
+                f"{qty:,.0f}",
+                f"{amount:,.2f}",
+                fee_display
             )
         console.print(deal_table)
+        console.print(f"[dim right]Total Fees for displayed orders: ${total_fees_day:.2f}[/dim right]")
+        
+    elif ret_deals != RET_OK:
+        console.print(f"[red]Error fetching deals: {data_deals}[/red]")
     else:
         console.print(Panel("No trades executed on this day.", title="Trades", style="dim"))
 
     # --- Display Cash Flow ---
     if ret_flow == RET_OK and not data_flow.empty:
-        flow_table = Table(title="Cash Flow / Settlements", style="magenta")
+        flow_table = Table(title=f"Cash Flow / Settlements ({query_date})", style="magenta")
         flow_table.add_column("Time", style="dim")
         flow_table.add_column("Type")
         flow_table.add_column("Amount", justify="right")
@@ -167,10 +214,10 @@ def get_statement(date_str=None):
                 time_val,
                 str(row.get('cash_flow_name', 'Unknown')),
                 f"[{color}]{amt:,.2f}[/{color}]",
-                str(row.get('cash_flow_remark', '')) # 'cashflow_remark' or 'description'
+                str(row.get('cash_flow_remark', '')) 
             )
         console.print(flow_table)
     else:
-        console.print(Panel("No cash flow events.", title="Cash Flow", style="dim"))
+        console.print(Panel(f"No cash flow settled on {query_date}.", title="Cash Flow", style="dim"))
 
     ConnectionManager.close()
