@@ -1,33 +1,35 @@
 import os
-from moomoo import OpenSecTradeContext, TrdEnv, SecurityFirm
+from moomoo import OpenSecTradeContext, TrdEnv, SecurityFirm, TrdMarket
 
-# Default Configuration (can be overridden by environment variables)
+# Default Configuration
 HOST = os.getenv("MOOMOO_HOST", "127.0.0.1")
 PORT = int(os.getenv("MOOMOO_PORT", 11111))
-# Default to SIMULATE for safety, change to REAL for actual trading
 TRADING_ENV = TrdEnv.SIMULATE if os.getenv("MOOMOO_ENV", "SIMULATE") == "SIMULATE" else TrdEnv.REAL
-# Security Firm: Moomoo defaults to FUTUSECURITIES for most users, change if needed
-SECURITY_FIRM = SecurityFirm.FUTUSECURITIES 
+
+# FIX: Change this to match your account region!
+# SecurityFirm.FUTUSECURITIES # <--- Futu HK (Hong Kong)
+# SecurityFirm.FUTUINC        # <--- Moomoo US (United States)
+# SecurityFirm.FUTUSG         # <--- Moomoo SG (Singapore)
+# SecurityFirm.FUTUAU         # <--- Moomoo AU (Australia)
+
+# Since you are a Moomoo US user:
+SECURITY_FIRM = SecurityFirm.FUTUINC 
 
 class ConnectionManager:
     _trade_context = None
 
     @classmethod
     def get_trade_context(cls):
-        """
-        Returns a singleton OpenSecTradeContext instance.
-        """
         if cls._trade_context is None:
             try:
-                # Initialize the trade context
                 cls._trade_context = OpenSecTradeContext(
                     host=HOST, 
                     port=PORT, 
-                    security_firm=SECURITY_FIRM
+                    security_firm=SECURITY_FIRM,
+                    filter_trdmarket=TrdMarket.US  # Ensure we look for US market permissions
                 )
-                print(f"Connected to Moomoo OpenD at {HOST}:{PORT} ({TRADING_ENV})")
             except Exception as e:
-                print(f"Error connecting to OpenD: {e}")
+                print(f"[bold red]Error connecting to OpenD:[/bold red] {e}")
                 exit(1)
         return cls._trade_context
 
