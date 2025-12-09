@@ -1,7 +1,7 @@
 import click
 from rich.console import Console
 from rich.table import Table
-from moomoo import TrdSide, OrderType, OrderStatus, RET_OK
+from moomoo import TrdSide, OrderType, OrderStatus, RET_OK, ModifyOrderOp
 from connection import ConnectionManager, TRADING_ENV
 
 console = Console()
@@ -33,7 +33,7 @@ def get_orders():
         table.add_column("Side", justify="center")
         table.add_column("Status")
         table.add_column("Price", justify="right")
-        table.add_column("Filled Price", justify="right", style="bold cyan") # New Column
+        table.add_column("Filled Price", justify="right", style="bold cyan")
         table.add_column("Qty", justify="right")
         table.add_column("Filled", justify="right")
         table.add_column("Time", justify="right", style="dim")
@@ -55,14 +55,11 @@ def get_orders():
             order_id = str(row.get('order_id', ''))
             code = str(row.get('code', ''))
             price = row.get('price', 0.0)
-            dealt_avg_price = row.get('dealt_avg_price', 0.0) # This is the Filled Price
+            dealt_avg_price = row.get('dealt_avg_price', 0.0)
             qty = row.get('qty', 0.0)
             dealt_qty = row.get('dealt_qty', 0.0)
             update_time = str(row.get('updated_time', ''))
 
-            # Logic to display Filled Price nice
-            # If 0.0 and filled, it might mean data delay or genuine 0 (unlikely for avg price)
-            # We just show what API gives.
             filled_price_display = f"{dealt_avg_price:.2f}"
             if dealt_qty == 0:
                 filled_price_display = "-"
@@ -136,8 +133,7 @@ def cancel_order(order_id):
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[yellow]Cancelling order {order_id}...[/yellow]")
 
-    # API Signature: modify_order(op, order_id, qty, price, ...)
-    # For CANCEL, qty and price are ignored (set to 0)
+    # Now ModifyOrderOp is correctly imported and available
     ret, data = ctx.modify_order(
         ModifyOrderOp.CANCEL, 
         order_id, 
