@@ -21,7 +21,7 @@ Before running this tool, you must have the following installed and running:
     * Log in with your Moomoo credentials.
     * Ensure it is listening on a local port (default is `11111`).
 
-2.  **Python 3.8+**
+2.  **Python 3.13+**
 
 ## Installation
 
