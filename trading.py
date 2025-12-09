@@ -1,7 +1,7 @@
 import click
 from rich.console import Console
-from rich.table import Table  # Added Table import
-from moomoo import TrdSide, OrderType, RET_OK
+from rich.table import Table
+from moomoo import TrdSide, OrderType, RET_OK, ModifyOrderOp
 from connection import ConnectionManager, TRADING_ENV
 
 console = Console()
@@ -13,7 +13,6 @@ def get_orders():
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[dim]Fetching orders for {TRADING_ENV}...[/dim]")
 
-    # Fetch orders (returns all orders for the environment by default)
     ret, data = ctx.order_list_query(trd_env=TRADING_ENV)
 
     if ret != RET_OK:
@@ -26,11 +25,9 @@ def get_orders():
         ConnectionManager.close()
         return
 
-    # Sort by update time descending (newest first)
     if 'updated_time' in data.columns:
         data = data.sort_values(by='updated_time', ascending=False)
 
-    # Create Table
     table = Table(title=f"Order Book ({TRADING_ENV})")
     table.add_column("Order ID", style="cyan", no_wrap=True)
     table.add_column("Symbol", style="bold yellow")
@@ -42,7 +39,6 @@ def get_orders():
     table.add_column("Time", style="dim")
 
     for _, row in data.iterrows():
-        # Formatting
         oid = str(row.get('order_id', 'N/A'))
         code = str(row.get('code', 'N/A'))
         side = str(row.get('trd_side', 'N/A'))
@@ -52,16 +48,15 @@ def get_orders():
         filled = row.get('dealt_qty', 0.0)
         updated_time = str(row.get('updated_time', ''))
 
-        # Color coding logic
         side_style = "green" if "BUY" in side.upper() else "red"
         
         status_style = "white"
         if status in ['SUBMITTED', 'FILLED_PART', 'WAITING_SUBMIT']:
-            status_style = "bold green" # Active/Working
+            status_style = "bold green"
         elif status == 'FILLED_ALL':
-            status_style = "blue"       # Completed
+            status_style = "blue"
         elif status in ['CANCELLED_ALL', 'CANCELLED_PART', 'FAILED']:
-            status_style = "dim red"    # Dead
+            status_style = "dim red"
 
         table.add_row(
             oid,
@@ -83,15 +78,12 @@ def place_trade(ticker, side, order_type_str, price, qty):
     """
     ctx = ConnectionManager.get_trade_context()
     
-    # 1. Normalize Ticker
     code = ticker.upper()
     if "." not in code:
         code = f"US.{code}"
     
-    # 2. Map Side
     trd_side = TrdSide.BUY if side.lower() == 'buy' else TrdSide.SELL
     
-    # 3. Map Order Type
     if order_type_str.lower() == 'market':
         order_type = OrderType.MARKET
     else:
@@ -104,7 +96,6 @@ def place_trade(ticker, side, order_type_str, price, qty):
     console.print(f"Price: {price}")
     console.print(f"Qty: {qty}")
 
-    # 4. Place Order
     ret, data = ctx.place_order(
         price=price, 
         qty=qty, 
@@ -114,7 +105,6 @@ def place_trade(ticker, side, order_type_str, price, qty):
         trd_env=TRADING_ENV
     )
 
-    # 5. Handle Result
     if ret == RET_OK:
         order_id = data['order_id'][0]
         console.print(f"[bold green]Order Placed Successfully![/bold green]")
@@ -124,4 +114,28 @@ def place_trade(ticker, side, order_type_str, price, qty):
         if "lock" in str(data).lower():
             console.print("[dim]Tip: Use 'python main.py unlock <password>' first.[/dim]")
 
+    ConnectionManager.close()
+
+def cancel_order(order_id):
+    """
+    Cancels an order by ID.
+    """
+    ctx = ConnectionManager.get_trade_context()
+    console.print(f"[yellow]Cancelling order {order_id}...[/yellow]")
+
+    # API Signature: modify_order(op, order_id, qty, price, ...)
+    # For CANCEL, qty and price are ignored (set to 0)
+    ret, data = ctx.modify_order(
+        ModifyOrderOp.CANCEL, 
+        order_id, 
+        0, 
+        0, 
+        trd_env=TRADING_ENV
+    )
+
+    if ret == RET_OK:
+        console.print(f"[bold green]Order {order_id} Cancelled Successfully![/bold green]")
+    else:
+        console.print(f"[bold red]Failed to Cancel:[/bold red] {data}")
+    
     ConnectionManager.close()

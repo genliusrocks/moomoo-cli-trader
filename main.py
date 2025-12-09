@@ -1,8 +1,7 @@
 import click
 from portfolio import get_account_summary, get_deals, get_positions
 from market_data import get_stock_quote
-# Import get_orders
-from trading import place_trade, get_orders
+from trading import place_trade, get_orders, cancel_order # Import cancel_order
 from connection import ConnectionManager
 
 @click.group()
@@ -45,11 +44,20 @@ def unlock_cmd(password):
     """Unlock trading with 6-digit PIN."""
     ConnectionManager.unlock(password)
 
-# --- New Orders Command ---
 @cli.command("orders")
 def orders_cmd():
     """List all open and recent orders."""
     get_orders()
+
+# --- New Cancel Command ---
+@cli.command("cancel")
+@click.argument("order_id")
+def cancel_cmd(order_id):
+    """
+    Cancel an open order.
+    Example: python main.py cancel 657248
+    """
+    cancel_order(order_id)
 
 @cli.command("buy")
 @click.argument("ticker")
@@ -57,10 +65,7 @@ def orders_cmd():
 @click.argument("qty", type=int)
 @click.argument("price", type=float, required=False, default=0.0)
 def buy_cmd(ticker, order_type, qty, price):
-    """
-    Place a BUY order.
-    Syntax: python main.py buy <TICKER> <TYPE> <QTY> [PRICE]
-    """
+    """Place a BUY order."""
     if order_type == 'limit' and price == 0.0:
         click.echo("Error: Limit orders require a price.\nUsage: python main.py buy <TICKER> limit <QTY> <PRICE>")
         return
@@ -72,10 +77,7 @@ def buy_cmd(ticker, order_type, qty, price):
 @click.argument("qty", type=int)
 @click.argument("price", type=float, required=False, default=0.0)
 def sell_cmd(ticker, order_type, qty, price):
-    """
-    Place a SELL order.
-    Syntax: python main.py sell <TICKER> <TYPE> <QTY> [PRICE]
-    """
+    """Place a SELL order."""
     if order_type == 'limit' and price == 0.0:
         click.echo("Error: Limit orders require a price.\nUsage: python main.py sell <TICKER> limit <QTY> <PRICE>")
         return
