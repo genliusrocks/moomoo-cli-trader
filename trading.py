@@ -1,18 +1,19 @@
 import click
 from rich.console import Console
 from rich.table import Table
-from moomoo import TrdSide, OrderType, RET_OK, ModifyOrderOp
+from moomoo import TrdSide, OrderType, OrderStatus, RET_OK
 from connection import ConnectionManager, TRADING_ENV
 
 console = Console()
 
 def get_orders():
     """
-    Fetches and displays a list of orders (Open & Recently Ended).
+    Fetches and displays the list of orders for today.
     """
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[dim]Fetching orders for {TRADING_ENV}...[/dim]")
 
+    # Fetch orders (filters can be added if needed)
     ret, data = ctx.order_list_query(trd_env=TRADING_ENV)
 
     if ret != RET_OK:
@@ -20,56 +21,68 @@ def get_orders():
         ConnectionManager.close()
         return
 
-    if data.empty:
+    if not data.empty:
+        # Sort by updated_time descending
+        if 'updated_time' in data.columns:
+            data = data.sort_values(by='updated_time', ascending=False)
+
+        table = Table(title=f"Order Book ({TRADING_ENV})")
+
+        table.add_column("Order ID", style="dim")
+        table.add_column("Symbol", style="yellow")
+        table.add_column("Side", justify="center")
+        table.add_column("Status")
+        table.add_column("Price", justify="right")
+        table.add_column("Filled Price", justify="right", style="bold cyan") # New Column
+        table.add_column("Qty", justify="right")
+        table.add_column("Filled", justify="right")
+        table.add_column("Time", justify="right", style="dim")
+
+        for _, row in data.iterrows():
+            # Side Color
+            side = row.get('trd_side', 'UNKNOWN')
+            side_style = "bold red" if side == "BUY" else "bold green"
+            
+            # Status Color
+            status = row.get('order_status', 'UNKNOWN')
+            status_style = "green" if status in [OrderStatus.FILLED_ALL, OrderStatus.FILLED_PART] else "white"
+            if status in [OrderStatus.CANCELLED_ALL, OrderStatus.CANCELLED_PART]:
+                status_style = "dim"
+            elif status == OrderStatus.FAILED:
+                status_style = "red"
+
+            # Fields
+            order_id = str(row.get('order_id', ''))
+            code = str(row.get('code', ''))
+            price = row.get('price', 0.0)
+            dealt_avg_price = row.get('dealt_avg_price', 0.0) # This is the Filled Price
+            qty = row.get('qty', 0.0)
+            dealt_qty = row.get('dealt_qty', 0.0)
+            update_time = str(row.get('updated_time', ''))
+
+            # Logic to display Filled Price nice
+            # If 0.0 and filled, it might mean data delay or genuine 0 (unlikely for avg price)
+            # We just show what API gives.
+            filled_price_display = f"{dealt_avg_price:.2f}"
+            if dealt_qty == 0:
+                filled_price_display = "-"
+
+            table.add_row(
+                order_id,
+                code,
+                f"[{side_style}]{side}[/{side_style}]",
+                f"[{status_style}]{status}[/{status_style}]",
+                f"{price:.2f}",
+                filled_price_display,
+                f"{qty:.0f}",
+                f"{dealt_qty:.0f}",
+                update_time
+            )
+
+        console.print(table)
+    else:
         console.print("[yellow]No orders found.[/yellow]")
-        ConnectionManager.close()
-        return
 
-    if 'updated_time' in data.columns:
-        data = data.sort_values(by='updated_time', ascending=False)
-
-    table = Table(title=f"Order Book ({TRADING_ENV})")
-    table.add_column("Order ID", style="cyan", no_wrap=True)
-    table.add_column("Symbol", style="bold yellow")
-    table.add_column("Side", style="bold")
-    table.add_column("Status")
-    table.add_column("Price", justify="right")
-    table.add_column("Qty", justify="right")
-    table.add_column("Filled", justify="right")
-    table.add_column("Time", style="dim")
-
-    for _, row in data.iterrows():
-        oid = str(row.get('order_id', 'N/A'))
-        code = str(row.get('code', 'N/A'))
-        side = str(row.get('trd_side', 'N/A'))
-        status = str(row.get('order_status', 'N/A'))
-        price = row.get('price', 0.0)
-        qty = row.get('qty', 0.0)
-        filled = row.get('dealt_qty', 0.0)
-        updated_time = str(row.get('updated_time', ''))
-
-        side_style = "green" if "BUY" in side.upper() else "red"
-        
-        status_style = "white"
-        if status in ['SUBMITTED', 'FILLED_PART', 'WAITING_SUBMIT']:
-            status_style = "bold green"
-        elif status == 'FILLED_ALL':
-            status_style = "blue"
-        elif status in ['CANCELLED_ALL', 'CANCELLED_PART', 'FAILED']:
-            status_style = "dim red"
-
-        table.add_row(
-            oid,
-            code,
-            f"[{side_style}]{side}[/{side_style}]",
-            f"[{status_style}]{status}[/{status_style}]",
-            f"{price:.2f}",
-            f"{qty:.0f}",
-            f"{filled:.0f}",
-            updated_time
-        )
-    
-    console.print(table)
     ConnectionManager.close()
 
 def place_trade(ticker, side, order_type_str, price, qty):
