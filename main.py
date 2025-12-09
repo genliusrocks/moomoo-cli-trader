@@ -1,6 +1,8 @@
 import click
 from portfolio import get_account_summary, get_deals
 from market_data import get_stock_quote
+from trading import place_trade
+from connection import ConnectionManager # Import ConnectionManager directly
 
 @click.group()
 def cli():
@@ -25,12 +27,30 @@ def deals_cmd(days, start, end):
     """List executed trades (Deals). Defaults to Today."""
     get_deals(days=days, start_date=start, end_date=end)
 
-# --- New Quote Command ---
 @cli.command("quote")
 @click.argument("ticker")
 def quote_cmd(ticker):
     """Get real-time quote and Level-2 order book for a stock (e.g., AAPL)."""
     get_stock_quote(ticker)
+
+@cli.command("buy")
+@click.argument("ticker")
+@click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
+@click.argument("price", type=float)
+@click.argument("qty", type=int)
+def buy_cmd(ticker, order_type, price, qty):
+    """
+    Place a BUY order.
+    Example: python main.py buy AAPL limit 273.1 100
+    """
+    place_trade(ticker, 'buy', order_type, price, qty)
+
+# --- New Unlock Command ---
+@cli.command("unlock")
+@click.argument("password")
+def unlock_cmd(password):
+    """Unlock trading with your 6-digit trading password."""
+    ConnectionManager.unlock(password)
 
 if __name__ == '__main__':
     cli()

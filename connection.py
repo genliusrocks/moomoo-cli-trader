@@ -1,5 +1,5 @@
 import os
-from moomoo import OpenSecTradeContext, OpenQuoteContext, TrdEnv, SecurityFirm, TrdMarket
+from moomoo import OpenSecTradeContext, OpenQuoteContext, TrdEnv, SecurityFirm, TrdMarket, RET_OK
 
 # Default Configuration
 HOST = os.getenv("MOOMOO_HOST", "127.0.0.1")
@@ -30,17 +30,26 @@ class ConnectionManager:
 
     @classmethod
     def get_quote_context(cls):
-        """
-        Returns a singleton OpenQuoteContext instance for Market Data.
-        """
         if cls._quote_context is None:
             try:
-                # Quote context only needs host and port
                 cls._quote_context = OpenQuoteContext(host=HOST, port=PORT)
             except Exception as e:
                 print(f"[bold red]Error connecting to Quote Context:[/bold red] {e}")
                 exit(1)
         return cls._quote_context
+
+    @classmethod
+    def unlock(cls, password):
+        """
+        Unlocks trading with the given password.
+        """
+        ctx = cls.get_trade_context()
+        ret, data = ctx.unlock_trade(password=password)
+        
+        if ret == RET_OK:
+            print("[bold green]Trading successfully unlocked![/bold green]")
+        else:
+            print(f"[bold red]Unlock failed:[/bold red] {data}")
 
     @classmethod
     def close(cls):
