@@ -1,7 +1,8 @@
 import click
 from portfolio import get_account_summary, get_deals, get_positions
 from market_data import get_stock_quote
-from trading import place_trade
+# Import get_orders
+from trading import place_trade, get_orders
 from connection import ConnectionManager
 
 @click.group()
@@ -44,7 +45,12 @@ def unlock_cmd(password):
     """Unlock trading with 6-digit PIN."""
     ConnectionManager.unlock(password)
 
-# --- Buy Command (Updated) ---
+# --- New Orders Command ---
+@cli.command("orders")
+def orders_cmd():
+    """List all open and recent orders."""
+    get_orders()
+
 @cli.command("buy")
 @click.argument("ticker")
 @click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
@@ -53,19 +59,13 @@ def unlock_cmd(password):
 def buy_cmd(ticker, order_type, qty, price):
     """
     Place a BUY order.
-    
-    Syntax:
-    Market: python main.py buy AAPL market 100
-    Limit:  python main.py buy AAPL limit 100 273.5
+    Syntax: python main.py buy <TICKER> <TYPE> <QTY> [PRICE]
     """
-    # Validation: Limit orders must have a price
     if order_type == 'limit' and price == 0.0:
         click.echo("Error: Limit orders require a price.\nUsage: python main.py buy <TICKER> limit <QTY> <PRICE>")
         return
-
     place_trade(ticker, 'buy', order_type, price, qty)
 
-# --- Sell Command (Updated) ---
 @cli.command("sell")
 @click.argument("ticker")
 @click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
@@ -74,15 +74,11 @@ def buy_cmd(ticker, order_type, qty, price):
 def sell_cmd(ticker, order_type, qty, price):
     """
     Place a SELL order.
-    
-    Syntax:
-    Market: python main.py sell SPY market 10
-    Limit:  python main.py sell SPY limit 10 685.5
+    Syntax: python main.py sell <TICKER> <TYPE> <QTY> [PRICE]
     """
     if order_type == 'limit' and price == 0.0:
         click.echo("Error: Limit orders require a price.\nUsage: python main.py sell <TICKER> limit <QTY> <PRICE>")
         return
-
     place_trade(ticker, 'sell', order_type, price, qty)
 
 if __name__ == '__main__':
