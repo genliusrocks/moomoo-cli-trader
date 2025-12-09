@@ -1,5 +1,4 @@
 import click
-# FIX: Added get_positions to the import
 from portfolio import get_account_summary, get_deals, get_statement, get_positions
 from market_data import get_stock_quote
 from trading import place_trade, get_orders, cancel_order 
@@ -33,7 +32,7 @@ def deals_cmd(days, start, end):
     """List executed trades (Deals). Defaults to Today."""
     get_deals(days=days, start_date=start, end_date=end)
 
-# --- NEW STATEMENT COMMAND ---
+# --- STATEMENT COMMAND ---
 @cli.command("statement")
 @click.argument("date_str", required=False)
 def statement_cmd(date_str):
@@ -42,7 +41,6 @@ def statement_cmd(date_str):
     DATE_STR: Optional 'YYMMDD' (e.g. 241209). Defaults to Today if omitted.
     """
     get_statement(date_str)
-
 
 @cli.command("quote")
 @click.argument("ticker")
@@ -61,7 +59,6 @@ def orders_cmd():
     """List all open and recent orders."""
     get_orders()
 
-# --- New Cancel Command ---
 @cli.command("cancel")
 @click.argument("order_id")
 def cancel_cmd(order_id):
@@ -70,7 +67,6 @@ def cancel_cmd(order_id):
     Example: python main.py cancel 657248
     """
     cancel_order(order_id)
-    
 
 @cli.command("buy")
 @click.argument("ticker")

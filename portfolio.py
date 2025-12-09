@@ -3,20 +3,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from moomoo import RET_OK, TrdEnv
-from connection import ConnectionManager, TRADING_ENV
+# Modified: Import safe_float from connection
+from connection import ConnectionManager, TRADING_ENV, safe_float
 from datetime import datetime
 import pytz
 
 console = Console()
-
-def safe_float(value):
-    """
-    Safely converts a value to float. Returns 0.0 if conversion fails.
-    """
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return 0.0
 
 def get_account_summary():
     """Fetches and displays the account assets, cash, and market value."""
@@ -216,6 +208,7 @@ def get_statement(date_str=None):
             
             price = safe_float(row.get('price'))
             qty = safe_float(row.get('qty'))
+            # Manually calc amount
             amount = price * qty
             
             order_id = row.get('order_id')

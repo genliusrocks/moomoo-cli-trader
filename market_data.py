@@ -4,24 +4,16 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.columns import Columns
 from moomoo import RET_OK, SubType
-# Removed 'OrderBook' import
-from connection import ConnectionManager
+# Modified: Import helpers from connection
+from connection import ConnectionManager, normalize_ticker, safe_float
 
 console = Console()
-
-def normalize_ticker(ticker):
-    """
-    Ensures ticker has a market prefix. Defaults to 'US.' if missing.
-    """
-    ticker = ticker.upper()
-    if "." not in ticker:
-        return f"US.{ticker}"
-    return ticker
 
 def get_stock_quote(ticker):
     """
     Fetches and displays Quote and Level-2 Order Book for a stock.
     """
+    # Use shared normalization
     code = normalize_ticker(ticker)
     ctx = ConnectionManager.get_quote_context()
 
@@ -52,8 +44,14 @@ def get_stock_quote(ticker):
     if not data_quote.empty:
         q = data_quote.iloc[0]
         
-        last_price = q.get('last_price', 0.0)
-        open_price = q.get('open_price', 0.0)
+        # Use safe_float for robustness
+        last_price = safe_float(q.get('last_price'))
+        open_price = safe_float(q.get('open_price'))
+        high_price = safe_float(q.get('high_price'))
+        low_price = safe_float(q.get('low_price'))
+        prev_close = safe_float(q.get('prev_close_price'))
+        volume = safe_float(q.get('volume'))
+
         color = "green" if last_price >= open_price else "red"
         
         grid = Table.grid(expand=True)
@@ -63,13 +61,13 @@ def get_stock_quote(ticker):
         
         grid.add_row(
             f"[bold {color}]Last: {last_price}[/]", 
-            f"High: {q.get('high_price')}", 
-            f"Low: {q.get('low_price')}"
+            f"High: {high_price}", 
+            f"Low: {low_price}"
         )
         grid.add_row(
-            f"Vol: {q.get('volume'):,}", 
+            f"Vol: {volume:,.0f}", 
             f"Open: {open_price}", 
-            f"Prev Cls: {q.get('prev_close_price')}"
+            f"Prev Cls: {prev_close}"
         )
 
         console.print(Panel(grid, title=f"[bold gold1]{code}[/] Quote", subtitle=str(q.get('data_time'))))
@@ -90,15 +88,18 @@ def get_stock_quote(ticker):
         limit = 10
         for i in range(limit):
             if i < len(bids):
-                # Safe unpacking: API returns (price, vol, count, details)
                 item = bids[i]
-                bid_table.add_row(f"{item[1]:,}", f"{item[0]:.2f}")
+                b_price = safe_float(item[0])
+                b_vol = safe_float(item[1])
+                bid_table.add_row(f"{b_vol:,.0f}", f"{b_price:.2f}")
             else:
                 bid_table.add_row("-", "-")
                 
             if i < len(asks):
                 item = asks[i]
-                ask_table.add_row(f"{item[0]:.2f}", f"{item[1]:,}")
+                a_price = safe_float(item[0])
+                a_vol = safe_float(item[1])
+                ask_table.add_row(f"{a_price:.2f}", f"{a_vol:,.0f}")
             else:
                 ask_table.add_row("-", "-")
 

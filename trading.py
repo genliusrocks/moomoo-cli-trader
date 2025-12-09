@@ -2,7 +2,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 from moomoo import TrdSide, OrderType, OrderStatus, RET_OK, ModifyOrderOp
-from connection import ConnectionManager, TRADING_ENV
+# Modified: Import helpers
+from connection import ConnectionManager, TRADING_ENV, safe_float, normalize_ticker
 
 console = Console()
 
@@ -51,13 +52,13 @@ def get_orders():
             elif status == OrderStatus.FAILED:
                 status_style = "red"
 
-            # Fields
+            # Fields using safe_float
             order_id = str(row.get('order_id', ''))
             code = str(row.get('code', ''))
-            price = row.get('price', 0.0)
-            dealt_avg_price = row.get('dealt_avg_price', 0.0)
-            qty = row.get('qty', 0.0)
-            dealt_qty = row.get('dealt_qty', 0.0)
+            price = safe_float(row.get('price'))
+            dealt_avg_price = safe_float(row.get('dealt_avg_price'))
+            qty = safe_float(row.get('qty'))
+            dealt_qty = safe_float(row.get('dealt_qty'))
             update_time = str(row.get('updated_time', ''))
 
             filled_price_display = f"{dealt_avg_price:.2f}"
@@ -88,9 +89,8 @@ def place_trade(ticker, side, order_type_str, price, qty):
     """
     ctx = ConnectionManager.get_trade_context()
     
-    code = ticker.upper()
-    if "." not in code:
-        code = f"US.{code}"
+    # Use helper
+    code = normalize_ticker(ticker)
     
     trd_side = TrdSide.BUY if side.lower() == 'buy' else TrdSide.SELL
     
@@ -133,7 +133,6 @@ def cancel_order(order_id):
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[yellow]Cancelling order {order_id}...[/yellow]")
 
-    # Now ModifyOrderOp is correctly imported and available
     ret, data = ctx.modify_order(
         ModifyOrderOp.CANCEL, 
         order_id, 

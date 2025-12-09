@@ -9,6 +9,27 @@ TRADING_ENV = TrdEnv.SIMULATE if os.getenv("MOOMOO_ENV", "SIMULATE") == "SIMULAT
 # Security Firm
 SECURITY_FIRM = SecurityFirm.FUTUINC 
 
+# --- Helper Functions (DRY & Robustness) ---
+def safe_float(value):
+    """
+    Safely converts a value to float. Returns 0.0 if conversion fails.
+    Prevents crashes when API returns None or empty strings.
+    """
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+def normalize_ticker(ticker):
+    """
+    Ensures ticker has a market prefix. Defaults to 'US.' if missing.
+    Example: 'AAPL' -> 'US.AAPL'
+    """
+    ticker = str(ticker).upper().strip()
+    if "." not in ticker:
+        return f"US.{ticker}"
+    return ticker
+
 class ConnectionManager:
     _trade_context = None
     _quote_context = None
