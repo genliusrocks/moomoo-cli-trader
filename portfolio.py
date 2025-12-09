@@ -2,7 +2,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from moomoo import RET_OK
+from moomoo import RET_OK, TrdEnv
 from connection import ConnectionManager, TRADING_ENV
 from datetime import datetime
 import pytz
@@ -10,6 +10,9 @@ import pytz
 console = Console()
 
 def safe_float(value):
+    """
+    Safely converts a value to float. Returns 0.0 if conversion fails.
+    """
     try:
         return float(value)
     except (ValueError, TypeError):
@@ -41,7 +44,6 @@ def get_market_timezone():
     return pytz.timezone('US/Eastern')
 
 def get_deals(days=0, start_date=None, end_date=None):
-    # This logic matches your previous implementation for fetching deals
     from datetime import timedelta
     ctx = ConnectionManager.get_trade_context()
     market_tz = get_market_timezone()
@@ -93,6 +95,62 @@ def get_deals(days=0, start_date=None, end_date=None):
         console.print("[yellow]No deals found.[/yellow]")
     ConnectionManager.close()
 
+def get_positions():
+    """
+    Fetches and displays the current stock positions.
+    """
+    ctx = ConnectionManager.get_trade_context()
+    console.print(f"[dim]Fetching positions for {TRADING_ENV}...[/dim]")
+
+    ret, data = ctx.position_list_query(trd_env=TRADING_ENV)
+
+    if ret != RET_OK:
+        console.print(f"[bold red]Error fetching positions:[/bold red] {data}")
+        ConnectionManager.close()
+        return
+
+    if not data.empty:
+        table = Table(title=f"Current Positions ({TRADING_ENV})")
+        
+        table.add_column("Symbol", style="yellow")
+        table.add_column("Name")
+        table.add_column("Qty", justify="right")
+        table.add_column("Cost", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Market Val", justify="right")
+        table.add_column("P&L", justify="right")
+        table.add_column("P&L %", justify="right")
+
+        for _, row in data.iterrows():
+            code = str(row.get('code', 'N/A'))
+            name = str(row.get('stock_name', 'N/A'))
+            qty = safe_float(row.get('qty'))
+            cost = safe_float(row.get('cost_price'))
+            price = safe_float(row.get('nominal_price'))
+            mkt_val = safe_float(row.get('market_val'))
+            pl_val = safe_float(row.get('pl_val'))
+            pl_ratio = safe_float(row.get('pl_ratio'))
+
+            # P&L Color: Green for profit, Red for loss (US Standard)
+            pl_style = "green" if pl_val >= 0 else "red"
+            
+            table.add_row(
+                code,
+                name,
+                f"{qty:,.0f}",
+                f"{cost:,.2f}",
+                f"{price:,.2f}",
+                f"{mkt_val:,.2f}",
+                f"[{pl_style}]{pl_val:+,.2f}[/{pl_style}]",
+                f"[{pl_style}]{pl_ratio:+.2f}%[/{pl_style}]"
+            )
+        
+        console.print(table)
+    else:
+        console.print("[yellow]No positions found (Empty portfolio).[/yellow]")
+
+    ConnectionManager.close()
+
 def get_statement(date_str=None):
     """
     Fetches a daily statement (Deals + Cash Flow) for a specific date.
@@ -113,21 +171,18 @@ def get_statement(date_str=None):
 
     console.print(f"[dim]Generating statement for [bold white]{query_date}[/bold white]...[/dim]")
 
-    # 2. Fetch Trades (Uses start/end)
+    # 2. Fetch Trades
     ret_deals, data_deals = ctx.history_deal_list_query(
         start=query_date, end=query_date, trd_env=TRADING_ENV
     )
 
-    # 3. 查询费用 (Fees)
-    fees_map = {} # order_id -> total_fee
+    # 3. Fetch Fees
+    fees_map = {} 
     if ret_deals == RET_OK and not data_deals.empty:
-        # 获取所有涉及的 Order ID
         order_ids = list(set(data_deals['order_id'].tolist()))
-        # API 限制每次最多查 400 个订单，这里假设日内订单不超过此数
         ret_fee, data_fee = ctx.order_fee_query(order_id_list=order_ids, trd_env=TRADING_ENV)
         
         if ret_fee == RET_OK and not data_fee.empty:
-            # data_fee 返回每一项费用明细 (佣金、平台费、交收费等)，我们需要按 order_id 汇总
             for _, row in data_fee.iterrows():
                 oid = row.get('order_id')
                 amt = safe_float(row.get('fee_amount'))
@@ -136,14 +191,13 @@ def get_statement(date_str=None):
                 else:
                     fees_map[oid] = amt
 
-    # 4. 查询资金流水 (Cash Flow)
+    # 4. Fetch Cash Flow
     ret_flow, data_flow = ctx.get_acc_cash_flow(
         clearing_date=query_date, trd_env=TRADING_ENV
     )
 
-    # --- 显示成交记录 ---
+    # --- Display Trades ---
     total_fees_day = 0.0
-    
     if ret_deals == RET_OK and not data_deals.empty:
         deal_table = Table(title=f"Executed Trades ({query_date})", style="blue")
         deal_table.add_column("Time", style="dim")
@@ -152,9 +206,8 @@ def get_statement(date_str=None):
         deal_table.add_column("Price", justify="right")
         deal_table.add_column("Qty", justify="right")
         deal_table.add_column("Amount", justify="right")
-        deal_table.add_column("Order Fee", justify="right", style="red") # 新增费用列
+        deal_table.add_column("Order Fee", justify="right", style="red")
 
-        # 用来防止同一个 Order 的费用在多次 Deal 中重复显示的逻辑 (可选)
         processed_orders = set()
 
         for _, row in data_deals.iterrows():
@@ -168,8 +221,6 @@ def get_statement(date_str=None):
             order_id = row.get('order_id')
             fee_display = "-"
             
-            # 显示费用：如果是该 Order 的第一笔展示，则显示总费用
-            # (注意：如果一个 Order 分多笔成交，API 返回的是该 Order 的总费用，无法精确拆分到每笔 Deal)
             if order_id in fees_map:
                 fee_val = fees_map[order_id]
                 if order_id not in processed_orders:
@@ -190,9 +241,6 @@ def get_statement(date_str=None):
             )
         console.print(deal_table)
         console.print(f"[dim right]Total Fees for displayed orders: ${total_fees_day:.2f}[/dim right]")
-        
-    elif ret_deals != RET_OK:
-        console.print(f"[red]Error fetching deals: {data_deals}[/red]")
     else:
         console.print(Panel("No trades executed on this day.", title="Trades", style="dim"))
 

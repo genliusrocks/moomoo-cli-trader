@@ -1,5 +1,6 @@
 import click
-from portfolio import get_account_summary, get_deals, get_statement
+# FIX: Added get_positions to the import
+from portfolio import get_account_summary, get_deals, get_statement, get_positions
 from market_data import get_stock_quote
 from trading import place_trade, get_orders, cancel_order 
 from connection import ConnectionManager
