@@ -72,29 +72,54 @@ def cancel_cmd(order_id):
     """
     cancel_order(order_id)
 
+# --- Updated Buy/Sell Commands ---
+
+ORDER_TYPES = ['LIMIT', 'MARKET', 'STOP', 'STOP_LIMIT', 'MIT', 'LIT', 'TR_STOP', 'TR_STOP_LIMIT']
+
 @cli.command("buy")
 @click.argument("ticker")
-@click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
+@click.argument("order_type", type=click.Choice(ORDER_TYPES, case_sensitive=False))
 @click.argument("qty", type=int)
 @click.argument("price", type=float, required=False, default=0.0)
-def buy_cmd(ticker, order_type, qty, price):
-    """Place a BUY order."""
-    if order_type == 'limit' and price == 0.0:
-        click.echo("Error: Limit orders require a price.\nUsage: python main.py buy <TICKER> limit <QTY> <PRICE>")
-        return
-    place_trade(ticker, 'buy', order_type, price, qty)
+# New Options for Advanced Orders
+@click.option("--aux", type=float, default=0.0, help="Trigger Price (for STOP/MIT/LIT).")
+@click.option("--trail", type=float, default=0.0, help="Trailing Value (Amount or Ratio).")
+@click.option("--trail_type", type=click.Choice(['amount', 'ratio'], case_sensitive=False), default='amount', help="Trailing Type (default: amount).")
+@click.option("--spread", type=float, default=0.0, help="Limit Spread (for Trailing Stop Limit).")
+def buy_cmd(ticker, order_type, qty, price, aux, trail, trail_type, spread):
+    """
+    Place a BUY order.
+    
+    Examples:
+    \b
+    Market:  buy AAPL market 10
+    Limit:   buy AAPL limit 10 150.5
+    Stop:    buy AAPL stop 10 0 --aux 155.0
+    Trail:   buy AAPL tr_stop 10 0 --trail 2.0 --trail_type amount
+    """
+    place_trade(ticker, 'buy', order_type, price, qty, 
+                aux_price=aux, trail_type=trail_type, trail_value=trail, trail_spread=spread)
 
 @cli.command("sell")
 @click.argument("ticker")
-@click.argument("order_type", type=click.Choice(['limit', 'market'], case_sensitive=False))
+@click.argument("order_type", type=click.Choice(ORDER_TYPES, case_sensitive=False))
 @click.argument("qty", type=int)
 @click.argument("price", type=float, required=False, default=0.0)
-def sell_cmd(ticker, order_type, qty, price):
-    """Place a SELL order."""
-    if order_type == 'limit' and price == 0.0:
-        click.echo("Error: Limit orders require a price.\nUsage: python main.py sell <TICKER> limit <QTY> <PRICE>")
-        return
-    place_trade(ticker, 'sell', order_type, price, qty)
+@click.option("--aux", type=float, default=0.0, help="Trigger Price (for STOP/MIT/LIT).")
+@click.option("--trail", type=float, default=0.0, help="Trailing Value (Amount or Ratio).")
+@click.option("--trail_type", type=click.Choice(['amount', 'ratio'], case_sensitive=False), default='amount', help="Trailing Type.")
+@click.option("--spread", type=float, default=0.0, help="Limit Spread (for Trailing Stop Limit).")
+def sell_cmd(ticker, order_type, qty, price, aux, trail, trail_type, spread):
+    """
+    Place a SELL order.
+    
+    Examples:
+    \b
+    Stop:    sell AAPL stop 10 0 --aux 140.0
+    Trail:   sell AAPL tr_stop 10 0 --trail 5.0 --trail_type ratio
+    """
+    place_trade(ticker, 'sell', order_type, price, qty, 
+                aux_price=aux, trail_type=trail_type, trail_value=trail, trail_spread=spread)
 
 if __name__ == '__main__':
     cli()

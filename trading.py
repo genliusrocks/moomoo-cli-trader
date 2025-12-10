@@ -1,11 +1,23 @@
 import click
 from rich.console import Console
 from rich.table import Table
-from moomoo import TrdSide, OrderType, OrderStatus, RET_OK, ModifyOrderOp
+from moomoo import TrdSide, OrderType, OrderStatus, RET_OK, ModifyOrderOp, TrailType
 # Modified: Import helpers
 from connection import ConnectionManager, TRADING_ENV, safe_float, normalize_ticker
 
 console = Console()
+
+# Mapping CLI strings to Moomoo OrderType Enums
+ORDER_TYPE_MAP = {
+    'LIMIT': OrderType.NORMAL,
+    'MARKET': OrderType.MARKET,
+    'STOP': OrderType.STOP,
+    'STOP_LIMIT': OrderType.STOP_LIMIT,
+    'MIT': OrderType.MARKET_IF_TOUCHED,      # Market If Touched
+    'LIT': OrderType.LIMIT_IF_TOUCHED,       # Limit If Touched
+    'TR_STOP': OrderType.TRAILING_STOP,      # Trailing Stop
+    'TR_STOP_LIMIT': OrderType.TRAILING_STOP_LIMIT # Trailing Stop Limit
+}
 
 def get_orders():
     """
@@ -60,6 +72,10 @@ def get_orders():
             qty = safe_float(row.get('qty'))
             dealt_qty = safe_float(row.get('dealt_qty'))
             update_time = str(row.get('updated_time', ''))
+            
+            # Show Aux Price (Trigger Price) if available
+            aux_price = safe_float(row.get('aux_price', 0))
+            aux_display = f"{aux_price:.2f}" if aux_price > 0 else "-"
 
             filled_price_display = f"{dealt_avg_price:.2f}"
             if dealt_qty == 0:
@@ -83,9 +99,10 @@ def get_orders():
 
     ConnectionManager.close()
 
-def place_trade(ticker, side, order_type_str, price, qty):
+def place_trade(ticker, side, order_type_str, price, qty, 
+                aux_price=0.0, trail_type=None, trail_value=0.0, trail_spread=0.0):
     """
-    Executes a trade order (Buy or Sell).
+    Executes a trade order with support for advanced order types.
     """
     ctx = ConnectionManager.get_trade_context()
     
@@ -94,25 +111,57 @@ def place_trade(ticker, side, order_type_str, price, qty):
     
     trd_side = TrdSide.BUY if side.lower() == 'buy' else TrdSide.SELL
     
-    if order_type_str.lower() == 'market':
-        order_type = OrderType.MARKET
-    else:
-        order_type = OrderType.NORMAL # Limit Order
-        
-    console.print(f"[yellow]Placing order...[/yellow]")
-    console.print(f"Side: [bold]{trd_side}[/bold]")
-    console.print(f"Symbol: [bold cyan]{code}[/bold cyan]")
-    console.print(f"Type: {order_type}")
-    console.print(f"Price: {price}")
-    console.print(f"Qty: {qty}")
+    # 1. Map CLI String to Enum
+    order_type_enum = ORDER_TYPE_MAP.get(order_type_str.upper())
+    if not order_type_enum:
+        console.print(f"[bold red]Invalid order type:[/bold red] {order_type_str}")
+        return
 
+    # 2. Validate Parameters based on Type
+    # Limit Orders need Price
+    if order_type_enum in [OrderType.NORMAL, OrderType.STOP_LIMIT, OrderType.LIMIT_IF_TOUCHED] and price <= 0:
+        console.print("[bold red]Error:[/bold red] This order type requires a limit PRICE.")
+        return
+    
+    # Trigger Orders need Aux Price (Stop/MIT/LIT)
+    if order_type_enum in [OrderType.STOP, OrderType.STOP_LIMIT, OrderType.MARKET_IF_TOUCHED, OrderType.LIMIT_IF_TOUCHED]:
+        if aux_price <= 0:
+            console.print(f"[bold red]Error:[/bold red] {order_type_str} requires --aux (Trigger/Stop Price).")
+            return
+
+    # Trailing Orders need Trail Value
+    moomoo_trail_type = TrailType.NONE
+    if order_type_enum in [OrderType.TRAILING_STOP, OrderType.TRAILING_STOP_LIMIT]:
+        if trail_value <= 0:
+            console.print(f"[bold red]Error:[/bold red] {order_type_str} requires --trail (Trailing Amount/Ratio).")
+            return
+        
+        # Map 'amount'/'ratio' to Enums
+        if trail_type and trail_type.lower() == 'ratio':
+            moomoo_trail_type = TrailType.RATIO
+        else:
+            moomoo_trail_type = TrailType.AMOUNT
+
+    console.print(f"[yellow]Placing order...[/yellow]")
+    console.print(f"Side: [bold]{trd_side}[/bold] | Symbol: [bold cyan]{code}[/bold cyan]")
+    console.print(f"Type: {order_type_str.upper()} | Qty: {qty}")
+    if price > 0: console.print(f"Limit Price: {price}")
+    if aux_price > 0: console.print(f"Trigger Price: {aux_price}")
+    if trail_value > 0: console.print(f"Trailing: {trail_value} ({moomoo_trail_type})")
+
+    # 3. Call API
     ret, data = ctx.place_order(
         price=price, 
         qty=qty, 
         code=code, 
         trd_side=trd_side, 
-        order_type=order_type, 
-        trd_env=TRADING_ENV
+        order_type=order_type_enum, 
+        trd_env=TRADING_ENV,
+        # Advanced Params
+        aux_price=aux_price,       # For STOP, MIT, LIT
+        trail_type=moomoo_trail_type, 
+        trail_value=trail_value,   # For Trailing
+        trail_spread=trail_spread  # For Trailing Stop Limit (Offset)
     )
 
     if ret == RET_OK:
@@ -132,15 +181,7 @@ def cancel_order(order_id):
     """
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[yellow]Cancelling order {order_id}...[/yellow]")
-
-    ret, data = ctx.modify_order(
-        ModifyOrderOp.CANCEL, 
-        order_id, 
-        0, 
-        0, 
-        trd_env=TRADING_ENV
-    )
-
+    ret, data = ctx.modify_order(ModifyOrderOp.CANCEL, order_id, 0, 0, trd_env=TRADING_ENV)
     if ret == RET_OK:
         console.print(f"[bold green]Order {order_id} Cancelled Successfully![/bold green]")
     else:
