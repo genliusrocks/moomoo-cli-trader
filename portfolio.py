@@ -2,30 +2,28 @@ import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from moomoo import RET_OK, TrdEnv
-# Modified: Import safe_float from connection
+from moomoo import RET_OK
 from connection import ConnectionManager, TRADING_ENV, safe_float
 from datetime import datetime
 import pytz
 
 console = Console()
 
-def get_account_summary(currency='USD'):  # <--- 新增参数
+# ... (get_account_summary, get_market_timezone, get_deals, get_statement 保持不变) ...
+# 为了完整性，我保留了所有代码，你可以直接覆盖整个文件
+
+def get_account_summary(currency='USD'):
     """Fetches and displays the account assets, cash, and market value."""
     ctx = ConnectionManager.get_trade_context()
-    
-    # 使用传入的 currency 参数
     ret, data = ctx.accinfo_query(trd_env=TRADING_ENV, currency=currency)
-    
     if ret != RET_OK:
         console.print(f"[bold red]Error fetching funds ({currency}):[/bold red] {data}")
         return
     if not data.empty:
         row = data.iloc[0]
-        # 标题增加币种显示
         table = Table(title=f"Account Summary ({TRADING_ENV}) - {currency}")
         table.add_column("Metric", style="cyan", no_wrap=True)
-        table.add_column(f"Value ({currency})", style="green") # 列名增加币种
+        table.add_column(f"Value ({currency})", style="green")
         
         table.add_row("Total Assets", f"{safe_float(row.get('total_assets')):,.2f}")
         table.add_row("Cash", f"{safe_float(row.get('cash')):,.2f}")
@@ -112,7 +110,8 @@ def get_positions():
         table.add_column("Symbol", style="yellow")
         table.add_column("Name")
         table.add_column("Qty", justify="right")
-        table.add_column("Cost", justify="right")
+        table.add_column("Diluted Cost", justify="right", style="dim") # 改名更明确
+        table.add_column("Avg Price", justify="right", style="bold")   # 新增持仓均价列
         table.add_column("Price", justify="right")
         table.add_column("Market Val", justify="right")
         table.add_column("P&L", justify="right")
@@ -122,13 +121,17 @@ def get_positions():
             code = str(row.get('code', 'N/A'))
             name = str(row.get('stock_name', 'N/A'))
             qty = safe_float(row.get('qty'))
-            cost = safe_float(row.get('cost_price'))
+            
+            # 两个成本字段
+            cost = safe_float(row.get('cost_price'))   # 摊薄成本
+            avg_cost = safe_float(row.get('average_cost')) # 持仓均价
+            
             price = safe_float(row.get('nominal_price'))
             mkt_val = safe_float(row.get('market_val'))
             pl_val = safe_float(row.get('pl_val'))
             pl_ratio = safe_float(row.get('pl_ratio'))
 
-            # P&L Color: Green for profit, Red for loss (US Standard)
+            # P&L Color
             pl_style = "green" if pl_val >= 0 else "red"
             
             table.add_row(
@@ -136,6 +139,7 @@ def get_positions():
                 name,
                 f"{qty:,.0f}",
                 f"{cost:,.2f}",
+                f"{avg_cost:,.2f}", # 显示持仓均价
                 f"{price:,.2f}",
                 f"{mkt_val:,.2f}",
                 f"[{pl_style}]{pl_val:+,.2f}[/{pl_style}]",
@@ -213,7 +217,6 @@ def get_statement(date_str=None):
             
             price = safe_float(row.get('price'))
             qty = safe_float(row.get('qty'))
-            # Manually calc amount
             amount = price * qty
             
             order_id = row.get('order_id')

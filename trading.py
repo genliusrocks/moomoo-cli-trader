@@ -2,7 +2,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 from moomoo import TrdSide, OrderType, OrderStatus, RET_OK, ModifyOrderOp, TrailType
-# Modified: Import helpers
+# 确保 connection.py 已经包含 safe_float 和 normalize_ticker
 from connection import ConnectionManager, TRADING_ENV, safe_float, normalize_ticker
 
 console = Console()
@@ -26,7 +26,7 @@ def get_orders():
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[dim]Fetching orders for {TRADING_ENV}...[/dim]")
 
-    # Fetch orders (filters can be added if needed)
+    # Fetch orders
     ret, data = ctx.order_list_query(trd_env=TRADING_ENV)
 
     if ret != RET_OK:
@@ -46,17 +46,17 @@ def get_orders():
         table.add_column("Side", justify="center")
         table.add_column("Status")
         table.add_column("Price", justify="right")
-        table.add_column("Filled Price", justify="right", style="bold cyan")
+        table.add_column("Filled Px", justify="right", style="bold cyan")
         table.add_column("Qty", justify="right")
         table.add_column("Filled", justify="right")
+        # 新增 Trigger 列，用于显示 aux_price
+        table.add_column("Trigger", justify="right", style="magenta") 
         table.add_column("Time", justify="right", style="dim")
 
         for _, row in data.iterrows():
-            # Side Color
             side = row.get('trd_side', 'UNKNOWN')
             side_style = "bold red" if side == "BUY" else "bold green"
             
-            # Status Color
             status = row.get('order_status', 'UNKNOWN')
             status_style = "green" if status in [OrderStatus.FILLED_ALL, OrderStatus.FILLED_PART] else "white"
             if status in [OrderStatus.CANCELLED_ALL, OrderStatus.CANCELLED_PART]:
@@ -64,7 +64,6 @@ def get_orders():
             elif status == OrderStatus.FAILED:
                 status_style = "red"
 
-            # Fields using safe_float
             order_id = str(row.get('order_id', ''))
             code = str(row.get('code', ''))
             price = safe_float(row.get('price'))
@@ -73,8 +72,9 @@ def get_orders():
             dealt_qty = safe_float(row.get('dealt_qty'))
             update_time = str(row.get('updated_time', ''))
             
-            # Show Aux Price (Trigger Price) if available
-            aux_price = safe_float(row.get('aux_price', 0))
+            # 获取触发价 (Aux Price)
+            aux_price = safe_float(row.get('aux_price'))
+            # 如果有触发价则显示，否则显示 "-"
             aux_display = f"{aux_price:.2f}" if aux_price > 0 else "-"
 
             filled_price_display = f"{dealt_avg_price:.2f}"
@@ -90,6 +90,7 @@ def get_orders():
                 filled_price_display,
                 f"{qty:.0f}",
                 f"{dealt_qty:.0f}",
+                aux_display, # 显示触发价
                 update_time
             )
 
@@ -106,9 +107,7 @@ def place_trade(ticker, side, order_type_str, price, qty,
     """
     ctx = ConnectionManager.get_trade_context()
     
-    # Use helper
     code = normalize_ticker(ticker)
-    
     trd_side = TrdSide.BUY if side.lower() == 'buy' else TrdSide.SELL
     
     # 1. Map CLI String to Enum
@@ -117,7 +116,7 @@ def place_trade(ticker, side, order_type_str, price, qty,
         console.print(f"[bold red]Invalid order type:[/bold red] {order_type_str}")
         return
 
-    # 2. Validate Parameters based on Type
+    # 2. Validate Parameters
     # Limit Orders need Price
     if order_type_enum in [OrderType.NORMAL, OrderType.STOP_LIMIT, OrderType.LIMIT_IF_TOUCHED] and price <= 0:
         console.print("[bold red]Error:[/bold red] This order type requires a limit PRICE.")
@@ -136,7 +135,6 @@ def place_trade(ticker, side, order_type_str, price, qty,
             console.print(f"[bold red]Error:[/bold red] {order_type_str} requires --trail (Trailing Amount/Ratio).")
             return
         
-        # Map 'amount'/'ratio' to Enums
         if trail_type and trail_type.lower() == 'ratio':
             moomoo_trail_type = TrailType.RATIO
         else:
@@ -161,7 +159,7 @@ def place_trade(ticker, side, order_type_str, price, qty,
         aux_price=aux_price,       # For STOP, MIT, LIT
         trail_type=moomoo_trail_type, 
         trail_value=trail_value,   # For Trailing
-        trail_spread=trail_spread  # For Trailing Stop Limit (Offset)
+        trail_spread=trail_spread  # For Trailing Stop Limit
     )
 
     if ret == RET_OK:
@@ -181,7 +179,15 @@ def cancel_order(order_id):
     """
     ctx = ConnectionManager.get_trade_context()
     console.print(f"[yellow]Cancelling order {order_id}...[/yellow]")
-    ret, data = ctx.modify_order(ModifyOrderOp.CANCEL, order_id, 0, 0, trd_env=TRADING_ENV)
+
+    ret, data = ctx.modify_order(
+        ModifyOrderOp.CANCEL, 
+        order_id, 
+        0, 
+        0, 
+        trd_env=TRADING_ENV
+    )
+
     if ret == RET_OK:
         console.print(f"[bold green]Order {order_id} Cancelled Successfully![/bold green]")
     else:
