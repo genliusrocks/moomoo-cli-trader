@@ -4,13 +4,16 @@ from rich.table import Table
 from rich.panel import Panel
 from moomoo import RET_OK
 from connection import ConnectionManager, TRADING_ENV, safe_float
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+import pandas as pd
 
 console = Console()
 
-# ... (get_account_summary, get_market_timezone, get_deals, get_statement 保持不变) ...
-# 为了完整性，我保留了所有代码，你可以直接覆盖整个文件
+# ... (保持 get_account_summary, get_market_timezone, get_deals, get_positions 不变) ...
+# 为了节省篇幅，这里仅展示你需要修改的 get_statement 部分，
+# 请确保保留文件顶部的 imports 和其他函数。
+# 如果你需要完整文件，请告诉我。
 
 def get_account_summary(currency='USD'):
     """Fetches and displays the account assets, cash, and market value."""
@@ -25,11 +28,11 @@ def get_account_summary(currency='USD'):
         table.add_column("Metric", style="cyan", no_wrap=True)
         table.add_column(f"Value ({currency})", style="green")
         
-        table.add_row("Total Assets", f"{safe_float(row.get('total_assets')):,.2f}")
-        table.add_row("Cash", f"{safe_float(row.get('cash')):,.2f}")
-        table.add_row("Market Value", f"{safe_float(row.get('market_val')):,.2f}")
-        table.add_row("Realized P&L", f"{safe_float(row.get('realized_pl')):,.2f}")
-        table.add_row("Unrealized P&L", f"{safe_float(row.get('unrealized_pl')):,.2f}")
+        table.add_row("Total Assets", f"${safe_float(row.get('total_assets')):,.2f}")
+        table.add_row("Cash", f"${safe_float(row.get('cash')):,.2f}")
+        table.add_row("Market Value", f"${safe_float(row.get('market_val')):,.2f}")
+        table.add_row("Realized P&L", f"${safe_float(row.get('realized_pl')):,.2f}")
+        table.add_row("Unrealized P&L", f"${safe_float(row.get('unrealized_pl')):,.2f}")
         console.print(table)
     else:
         console.print(f"[yellow]No account data found for {currency}.[/yellow]")
@@ -110,8 +113,8 @@ def get_positions():
         table.add_column("Symbol", style="yellow")
         table.add_column("Name")
         table.add_column("Qty", justify="right")
-        table.add_column("Diluted Cost", justify="right", style="dim") # 改名更明确
-        table.add_column("Avg Price", justify="right", style="bold")   # 新增持仓均价列
+        table.add_column("Diluted Cost", justify="right", style="dim")
+        table.add_column("Avg Price", justify="right", style="bold")
         table.add_column("Price", justify="right")
         table.add_column("Market Val", justify="right")
         table.add_column("P&L", justify="right")
@@ -121,17 +124,13 @@ def get_positions():
             code = str(row.get('code', 'N/A'))
             name = str(row.get('stock_name', 'N/A'))
             qty = safe_float(row.get('qty'))
-            
-            # 两个成本字段
-            cost = safe_float(row.get('cost_price'))   # 摊薄成本
-            avg_cost = safe_float(row.get('average_cost')) # 持仓均价
-            
+            cost = safe_float(row.get('cost_price'))
+            avg_cost = safe_float(row.get('average_cost'))
             price = safe_float(row.get('nominal_price'))
             mkt_val = safe_float(row.get('market_val'))
             pl_val = safe_float(row.get('pl_val'))
             pl_ratio = safe_float(row.get('pl_ratio'))
 
-            # P&L Color
             pl_style = "green" if pl_val >= 0 else "red"
             
             table.add_row(
@@ -139,7 +138,7 @@ def get_positions():
                 name,
                 f"{qty:,.0f}",
                 f"{cost:,.2f}",
-                f"{avg_cost:,.2f}", # 显示持仓均价
+                f"{avg_cost:,.2f}",
                 f"{price:,.2f}",
                 f"{mkt_val:,.2f}",
                 f"[{pl_style}]{pl_val:+,.2f}[/{pl_style}]",
@@ -152,35 +151,100 @@ def get_positions():
 
     ConnectionManager.close()
 
+# --- 修改后的 get_statement 函数 ---
 def get_statement(date_str=None):
     """
-    Fetches a daily statement (Deals + Cash Flow) for a specific date.
+    Fetches a statement (Deals + Cash Flow) for a specific date or date range.
+    date_str format: 'YYMMDD' or 'YYMMDD-YYMMDD'.
     """
     ctx = ConnectionManager.get_trade_context()
     market_tz = get_market_timezone()
     
-    # 1. Parse Date
+    start_date = None
+    end_date = None
+    query_label = ""
+    date_list = []
+
+    # 1. 解析日期或日期范围
     if date_str:
         try:
-            dt = datetime.strptime(date_str, "%y%m%d")
-            query_date = dt.strftime("%Y-%m-%d")
+            if '-' in date_str:
+                # 处理范围: YYMMDD-YYMMDD
+                parts = date_str.split('-')
+                if len(parts) != 2:
+                    console.print(f"[bold red]Invalid range format:[/bold red] {date_str}. Use YYMMDD-YYMMDD.")
+                    return
+                
+                s_obj = datetime.strptime(parts[0], "%y%m%d")
+                e_obj = datetime.strptime(parts[1], "%y%m%d")
+                
+                if s_obj > e_obj:
+                     console.print(f"[bold red]Start date must be before end date.[/bold red]")
+                     return
+                     
+                start_date = s_obj.strftime("%Y-%m-%d")
+                end_date = e_obj.strftime("%Y-%m-%d")
+                query_label = f"{start_date} to {end_date}"
+                
+                # 生成所有需要查询的日期列表 (用于 Cash Flow)
+                curr = s_obj
+                while curr <= e_obj:
+                    date_list.append(curr.strftime("%Y-%m-%d"))
+                    curr += timedelta(days=1)
+                    
+            else:
+                # 处理单日: YYMMDD
+                dt = datetime.strptime(date_str, "%y%m%d")
+                start_date = dt.strftime("%Y-%m-%d")
+                end_date = start_date
+                query_label = start_date
+                date_list = [start_date]
+                
         except ValueError:
-            console.print(f"[bold red]Invalid date format:[/bold red] {date_str}. Use YYMMDD.")
+            console.print(f"[bold red]Invalid date format:[/bold red] {date_str}. Use YYMMDD or YYMMDD-YYMMDD.")
             return
     else:
-        query_date = datetime.now(market_tz).strftime("%Y-%m-%d")
+        # 默认查询今天
+        today = datetime.now(market_tz).strftime("%Y-%m-%d")
+        start_date = today
+        end_date = today
+        query_label = today
+        date_list = [today]
 
-    console.print(f"[dim]Generating statement for [bold white]{query_date}[/bold white]...[/dim]")
+    console.print(f"[dim]Generating statement for [bold white]{query_label}[/bold white]...[/dim]")
 
-    # 2. Fetch Trades
+    # 2. 查询交易 (Deals) - API 支持范围查询
     ret_deals, data_deals = ctx.history_deal_list_query(
-        start=query_date, end=query_date, trd_env=TRADING_ENV
+        start=start_date, end=end_date, trd_env=TRADING_ENV
     )
 
-    # 3. Fetch Fees
+    # 3. 查询资金流水 (Cash Flow) - API 需要单日循环
+    all_cash_flows = []
+    
+    # 使用 rich 的 status 显示加载动画，防止循环太久用户以为卡死
+    with console.status(f"[dim]Fetching cash flows for {len(date_list)} days...[/dim]"):
+        for d in date_list:
+            r, d_data = ctx.get_acc_cash_flow(clearing_date=d, trd_env=TRADING_ENV)
+            if r == RET_OK and not d_data.empty:
+                all_cash_flows.append(d_data)
+    
+    data_flow = pd.DataFrame()
+    ret_flow = RET_OK
+    if all_cash_flows:
+        data_flow = pd.concat(all_cash_flows, ignore_index=True)
+        # 按时间排序
+        if 'create_time' in data_flow.columns:
+             data_flow = data_flow.sort_values(by='create_time')
+        # 如果是老版本只有 pay_time，可以尝试按 pay_time 排
+        elif 'pay_time' in data_flow.columns:
+             data_flow = data_flow.sort_values(by='pay_time')
+
+    # 4. 查询费用 (Fees)
     fees_map = {} 
     if ret_deals == RET_OK and not data_deals.empty:
         order_ids = list(set(data_deals['order_id'].tolist()))
+        # API 限制一次查太多可能会报错，通常几百个没问题。
+        # 如果范围很大，建议分批查询 (这里暂且假设日内或短周期交易量不超限)
         ret_fee, data_fee = ctx.order_fee_query(order_id_list=order_ids, trd_env=TRADING_ENV)
         
         if ret_fee == RET_OK and not data_fee.empty:
@@ -192,15 +256,15 @@ def get_statement(date_str=None):
                 else:
                     fees_map[oid] = amt
 
-    # 4. Fetch Cash Flow
-    ret_flow, data_flow = ctx.get_acc_cash_flow(
-        clearing_date=query_date, trd_env=TRADING_ENV
-    )
-
-    # --- Display Trades ---
-    total_fees_day = 0.0
+    # --- 显示交易记录 (Deals) ---
+    total_fees_period = 0.0
+    
     if ret_deals == RET_OK and not data_deals.empty:
-        deal_table = Table(title=f"Executed Trades ({query_date})", style="blue")
+        # 按时间倒序或正序显示
+        if 'create_time' in data_deals.columns:
+            data_deals = data_deals.sort_values(by='create_time', ascending=True)
+            
+        deal_table = Table(title=f"Executed Trades ({query_label})", style="blue")
         deal_table.add_column("Time", style="dim")
         deal_table.add_column("Side")
         deal_table.add_column("Symbol", style="yellow")
@@ -224,15 +288,16 @@ def get_statement(date_str=None):
             
             if order_id in fees_map:
                 fee_val = fees_map[order_id]
+                # 只是为了显示美观，对于同一个订单的多笔成交，只在第一笔显示总费用
                 if order_id not in processed_orders:
                     fee_display = f"{fee_val:.2f}"
-                    total_fees_day += fee_val
+                    total_fees_period += fee_val
                     processed_orders.add(order_id)
                 else:
                     fee_display = "(see above)"
 
             deal_table.add_row(
-                str(row.get('create_time', 'N/A'))[11:], 
+                str(row.get('create_time', 'N/A')), # 显示完整时间
                 f"[{color}]{side}[/{color}]",
                 str(row.get('code', 'N/A')),
                 f"{price:,.2f}",
@@ -241,13 +306,13 @@ def get_statement(date_str=None):
                 fee_display
             )
         console.print(deal_table)
-        console.print(f"[dim right]Total Fees for displayed orders: ${total_fees_day:.2f}[/dim right]")
+        console.print(f"[dim right]Total Fees for period: ${total_fees_period:.2f}[/dim right]")
     else:
-        console.print(Panel("No trades executed on this day.", title="Trades", style="dim"))
+        console.print(Panel(f"No trades executed during {query_label}.", title="Trades", style="dim"))
 
-    # --- Display Cash Flow ---
-    if ret_flow == RET_OK and not data_flow.empty:
-        flow_table = Table(title=f"Cash Flow / Settlements ({query_date})", style="magenta")
+    # --- 显示资金流水 (Cash Flow) ---
+    if not data_flow.empty:
+        flow_table = Table(title=f"Cash Flow / Settlements ({query_label})", style="magenta")
         flow_table.add_column("Time", style="dim")
         flow_table.add_column("Type")
         flow_table.add_column("Amount", justify="right")
@@ -257,8 +322,7 @@ def get_statement(date_str=None):
             amt = safe_float(row.get('cash_flow_amount', 0))
             color = "green" if amt >= 0 else "red"
             time_val = str(row.get('create_time', row.get('pay_time', 'N/A')))
-            if len(time_val) > 10: time_val = time_val[11:]
-
+            
             flow_table.add_row(
                 time_val,
                 str(row.get('cash_flow_name', 'Unknown')),
@@ -267,6 +331,6 @@ def get_statement(date_str=None):
             )
         console.print(flow_table)
     else:
-        console.print(Panel(f"No cash flow settled on {query_date}.", title="Cash Flow", style="dim"))
+        console.print(Panel(f"No cash flow settled during {query_label}.", title="Cash Flow", style="dim"))
 
     ConnectionManager.close()

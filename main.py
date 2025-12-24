@@ -41,8 +41,12 @@ def deals_cmd(days, start, end):
 @click.argument("date_str", required=False)
 def statement_cmd(date_str):
     """
-    Get daily statement (Trades & Cash Flow).
-    DATE_STR: Optional 'YYMMDD' (e.g. 241209). Defaults to Today if omitted.
+    Get statement (Trades & Cash Flow).
+    
+    DATE_STR format:
+      - 'YYMMDD' (e.g. 251216) for a single day.
+      - 'YYMMDD-YYMMDD' (e.g. 251216-251217) for a range (inclusive).
+      - Default: Today if omitted.
     """
     get_statement(date_str)
 
